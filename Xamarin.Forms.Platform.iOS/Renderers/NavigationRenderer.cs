@@ -29,6 +29,7 @@ namespace Xamarin.Forms.Platform.iOS
 		VisualElementTracker _tracker;
 		nfloat _navigationBottom = 0;
 		bool _hasNavigationBar;
+		UIImage _defaultNavBarShadowImage;
 
 		public NavigationRenderer()
 		{
@@ -44,6 +45,8 @@ namespace Xamarin.Forms.Platform.iOS
 		Page Current { get; set; }
 
 		IPageController PageController => Element as IPageController;
+
+		NavigationPage NavPage => Element as NavigationPage;
 
 		public VisualElement Element { get; private set; }
 
@@ -62,7 +65,7 @@ namespace Xamarin.Forms.Platform.iOS
 		public void SetElement(VisualElement element)
 		{
 			var oldElement = Element;
-			Element = (NavigationPage)element;
+			Element = element;
 			OnElementChanged(new VisualElementChangedEventArgs(oldElement, element));
 
 			if (element != null)
@@ -205,7 +208,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 			FindParentMasterDetail();
 
-			var navPage = (NavigationPage)Element;
+			var navPage = NavPage;
 
 			if (navPage.CurrentPage == null)
 			{
@@ -223,6 +226,7 @@ namespace Xamarin.Forms.Platform.iOS
 			UpdateBarBackgroundColor();
 			UpdateBarTextColor();
 			UpdateUseLargeTitles();
+			UpdateHideNavigationBarSeparator();
 
 			// If there is already stuff on the stack we need to push it
 			navPage.Pages.ForEach(async p => await PushPageAsync(p, false));
@@ -255,7 +259,7 @@ namespace Xamarin.Forms.Platform.iOS
 				_parentMasterDetailPage = null;
 				Current = null; // unhooks events
 
-				var navPage = (NavigationPage)Element;
+				var navPage = NavPage;
 				navPage.PropertyChanged -= HandlePropertyChanged;
 
 				navPage.PushRequested -= OnPushRequested;
@@ -372,7 +376,9 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void FindParentMasterDetail()
 		{
-			var parentPages = ((Page)Element).GetParentPages();
+			Page page = Element as Page;
+
+			var parentPages = page.GetParentPages();
 			var masterDetail = parentPages.OfType<MasterDetailPage>().FirstOrDefault();
 
 			if (masterDetail != null && parentPages.Append((Page)Element).Contains(masterDetail.Detail))
@@ -434,7 +440,7 @@ namespace Xamarin.Forms.Platform.iOS
 			}
 			else if (e.PropertyName == NavigationPage.CurrentPageProperty.PropertyName)
 			{
-				Current = ((NavigationPage)Element).CurrentPage;
+				Current = NavPage?.CurrentPage;
 				ValidateNavbarExists(Current);
 			}
 			else if (e.PropertyName == IsNavigationBarTranslucentProperty.PropertyName)
@@ -454,6 +460,10 @@ namespace Xamarin.Forms.Platform.iOS
 				var pack = (ParentingViewController)TopViewController;
 				UpdateTitleArea(pack, pack.Child);
 			}
+			else if (e.PropertyName == HideNavigationBarSeparatorProperty.PropertyName)
+			{
+				UpdateHideNavigationBarSeparator();
+			}
 		}
 
 		void ValidateNavbarExists(Page newCurrentPage)
@@ -462,6 +472,19 @@ namespace Xamarin.Forms.Platform.iOS
 			//we will need to relayout. This is because Current is updated async of the layout happening
 			if(_hasNavigationBar != NavigationPage.GetHasNavigationBar(newCurrentPage))
 				ViewDidLayoutSubviews();
+		}
+
+		void UpdateHideNavigationBarSeparator()
+		{
+			bool shouldHide = NavPage.OnThisPlatform().HideNavigationBarSeparator();
+
+			if (_defaultNavBarShadowImage == null)
+				_defaultNavBarShadowImage = NavigationBar.ShadowImage;
+
+			if (shouldHide)
+				NavigationBar.ShadowImage = new UIImage();
+			else
+				NavigationBar.ShadowImage = _defaultNavBarShadowImage;
 		}
 
 		void UpdateCurrentPagePreferredStatusBarUpdateAnimation()
@@ -474,9 +497,8 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void UpdateUseLargeTitles()
 		{
-			var navPage = (Element as NavigationPage);
-			if (Forms.IsiOS11OrNewer && navPage != null)
-				NavigationBar.PrefersLargeTitles = navPage.OnThisPlatform().PrefersLargeTitles();
+			if (Forms.IsiOS11OrNewer && NavPage != null)
+				NavigationBar.PrefersLargeTitles = NavPage.OnThisPlatform().PrefersLargeTitles();
 		}
 
 		void UpdateTitleArea(ParentingViewController pack, Page page)
@@ -593,7 +615,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void UpdateTranslucent()
 		{
-			NavigationBar.Translucent = ((NavigationPage)Element).OnThisPlatform().IsNavigationBarTranslucent();
+			NavigationBar.Translucent = NavPage.OnThisPlatform().IsNavigationBarTranslucent();
 		}
 
 		void InsertPageBefore(Page page, Page before)
@@ -694,7 +716,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void UpdateBarBackgroundColor()
 		{
-			var barBackgroundColor = ((NavigationPage)Element).BarBackgroundColor;
+			var barBackgroundColor = NavPage.BarBackgroundColor;
 			// Set navigation bar background color
 			NavigationBar.BarTintColor = barBackgroundColor == Color.Default
 				? UINavigationBar.Appearance.BarTintColor
@@ -703,7 +725,7 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void UpdateBarTextColor()
 		{
-			var barTextColor = ((NavigationPage)Element).BarTextColor;
+			var barTextColor = NavPage.BarTextColor;
 
 			var globalAttributes = UINavigationBar.Appearance.GetTitleTextAttributes();
 
@@ -729,14 +751,14 @@ namespace Xamarin.Forms.Platform.iOS
 				NavigationBar.TitleTextAttributes = titleAttributes;
 			}
 
-			if(Forms.IsiOS11OrNewer)
+			if (Forms.IsiOS11OrNewer)
 			{
 				var globalLargeTitleAttributes = UINavigationBar.Appearance.LargeTitleTextAttributes;
-				if(globalLargeTitleAttributes == null)
-					NavigationBar.LargeTitleTextAttributes = NavigationBar.TitleTextAttributes;      
+				if (globalLargeTitleAttributes == null)
+					NavigationBar.LargeTitleTextAttributes = NavigationBar.TitleTextAttributes;
 			}
 
-			var statusBarColorMode = (Element as NavigationPage).OnThisPlatform().GetStatusBarTextColorMode();
+			var statusBarColorMode = NavPage.OnThisPlatform().GetStatusBarTextColorMode();
 
 			// set Tint color (i. e. Back Button arrow and Text)
 			NavigationBar.TintColor = barTextColor == Color.Default || statusBarColorMode == StatusBarTextColorMode.DoNotAdjust
@@ -746,8 +768,8 @@ namespace Xamarin.Forms.Platform.iOS
 
 		void SetStatusBarStyle()
 		{
-			var barTextColor = ((NavigationPage)Element).BarTextColor;
-			var statusBarColorMode = (Element as NavigationPage).OnThisPlatform().GetStatusBarTextColorMode();
+			var barTextColor = NavPage.BarTextColor;
+			var statusBarColorMode = NavPage.OnThisPlatform().GetStatusBarTextColorMode();
 
 			if (statusBarColorMode == StatusBarTextColorMode.DoNotAdjust || barTextColor.Luminosity <= 0.5)
 			{
@@ -766,7 +788,7 @@ namespace Xamarin.Forms.Platform.iOS
 			if (containerController == null)
 				return;
 			var currentChild = containerController.Child;
-			var firstPage = ((NavigationPage)Element).Pages.FirstOrDefault();
+			var firstPage = NavPage.Pages.FirstOrDefault();
 			if ((firstPage != pageBeingRemoved && currentChild != firstPage && NavigationPage.GetHasBackButton(currentChild)) || _parentMasterDetailPage == null)
 				return;
 
@@ -776,7 +798,7 @@ namespace Xamarin.Forms.Platform.iOS
 		void UpdateTint()
 		{
 #pragma warning disable 0618 //retaining legacy call to obsolete code
-			var tintColor = ((NavigationPage)Element).Tint;
+			var tintColor = NavPage.Tint;
 #pragma warning restore 0618
 			NavigationBar.BarTintColor = tintColor == Color.Default
 				? UINavigationBar.Appearance.BarTintColor
@@ -807,12 +829,11 @@ namespace Xamarin.Forms.Platform.iOS
 
 		internal async Task UpdateFormsInnerNavigation(Page pageBeingRemoved)
 		{
-			var navPage = Element as NavigationPage;
-			if (navPage == null)
+			if (NavPage == null)
 				return;
 			_ignorePopCall = true;
 			if (Element.Navigation.NavigationStack.Contains(pageBeingRemoved))
-				await (navPage as INavigationPageController)?.RemoveAsyncInner(pageBeingRemoved, false, true);
+				await (NavPage as INavigationPageController)?.RemoveAsyncInner(pageBeingRemoved, false, true);
 			_ignorePopCall = false;
 
 		}
